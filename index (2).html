@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XAUUSD Signal</title>
+<style>
+:root{--bg:#fff;--card:#f4f4f5;--tx:#18181b;--mu:#71717a;--bd:#e4e4e7;--up:#16a34a;--dn:#dc2626;--ac:#b45309}
+@media(prefers-color-scheme:dark){:root{--bg:#0f0f11;--card:#1a1a1e;--tx:#f4f4f5;--mu:#a1a1aa;--bd:#2e2e34;--up:#4ade80;--dn:#f87171;--ac:#fbbf24}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,"Noto Sans Khmer",sans-serif;background:var(--bg);color:var(--tx);padding:16px;max-width:720px;margin:auto}
+h1{font-size:20px;margin:0 0 4px}.mu{color:var(--mu);font-size:13px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:12px 0}
+.big{font-size:28px;font-weight:700}.BUY{color:var(--up)}.SELL{color:var(--dn)}
+.row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)}.row:last-child{border:0}
+button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:15px;cursor:pointer}
+input{width:90px;padding:6px;border-radius:6px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+li{margin:3px 0;font-size:14px}
+</style>
+</head>
+<body>
+<h1>🥇 XAUUSD Smart Signal</h1>
+<div class="mu">SMC · ICT · Wyckoff · VSA · Price Action · Supply/Demand · Breakout-Retest · Fibo · Order Flow · Trend</div>
+<div class="card"><div id="sess" class="mu">...</div><button onclick="run(true)">🔄 Analyze</button></div>
+<div id="out" class="card">កំពុងផ្ទុក...</div>
+<div class="card">
+<b>Risk Management</b><br><br>
+Balance $ <input id="bal" type="number" value="1000"> Risk % <input id="rk" type="number" value="1" step="0.5"><br><br>
+Offset CXM−Feed <input id="off" type="number" value="0" step="0.1"> Contract (oz/lot) <input id="cs" type="number" value="100">
+<div class="mu">Offset = តម្លៃ XAUUSD នៅ CXM ដកតម្លៃ Entry ក្នុងគេហទំព័រ (ឧ. +1.5 ឬ −2)</div>
+<div id="lot" style="margin-top:10px"></div>
+</div>
+<div class="mu" id="src">...</div>
+<div class="mu">⚠️ មិនមែនជាដំបូន្មានវិនិយោគទេ។ គ្មានការធានា winrate។ ផ្ទៀងផ្ទាត់តម្លៃជាមួយ broker មុន Entry។</div>
+
+<script>
+const mk=k=>({t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]});
+const tmo=(u)=>{const c=new AbortController();setTimeout(()=>c.abort(),8000);return fetch(u,{signal:c.signal}).then(r=>{if(!r.ok)throw 0;return r.json()})};
+const SRC=[
+ {n:"Bybit XAUUSDT (Gold Spot)",f:async i=>{const m={"15m":15,"1h":60,"4h":240}[i];
+  const j=await tmo(`https://api.bybit.com/v5/market/kline?category=linear&symbol=XAUUSDT&interval=${m}&limit=500`);return j.result.list.reverse().map(mk)}},
+ {n:"Binance Futures XAUUSDT (Gold Spot)",f:async i=>(await tmo(`https://fapi.binance.com/fapi/v1/klines?symbol=XAUUSDT&interval=${i}&limit=500`)).map(mk)},
+ {n:"Binance PAXG (Gold ជំនួស)",f:async i=>(await tmo(`https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=${i}&limit=500`)).map(mk)}
+];
+async function loadAll(){
+ for(const s of SRC){try{const r=await Promise.all(["15m","1h","4h"].map(s.f));
+  if(r.every(x=>x.length>220)){document.getElementById("src").textContent="ទិន្នន័យ៖ "+s.n;return r}}catch(e){}}
+ throw new Error("ភ្ជាប់ប្រភពទិន្នន័យមិនបាន (ពិនិត្យ internet/VPN រួចចុច Analyze ម្តងទៀត)")}
+const ema=(a,n)=>{let k=2/(n+1),e=a[0];return a.map(x=>e=x*k+e*(1-k))};
+const atr=(d,n=14)=>{let s=0;for(let i=d.length-n;i<d.length;i++)s+=Math.max(d[i].h-d[i].l,Math.abs(d[i].h-d[i-1].c),Math.abs(d[i].l-d[i-1].c));return s/n};
+const rsi=(d,n=14)=>{let g=0,l=0;for(let i=d.length-n;i<d.length;i++){let x=d[i].c-d[i-1].c;x>0?g+=x:l-=x}return 100-100/(1+g/(l||1e-9))};
+function swings(d,k=3){const H=[],L=[];for(let i=k;i<d.length-k;i++){let h=1,l=1;for(let j=1;j<=k;j++){if(d[i].h<=d[i-j].h||d[i].h<=d[i+j].h)h=0;if(d[i].l>=d[i-j].l||d[i].l>=d[i+j].l)l=0}if(h)H.push({i,p:d[i].h});if(l)L.push({i,p:d[i].l})}return{H,L}}
+function trend(d){const c=d.map(x=>x.c),e50=ema(c,50),e200=ema(c,200),n=c.length-1,s=swings(d);
+ let st=0;if(s.H.length>1&&s.L.length>1){const hh=s.H.at(-1).p>s.H.at(-2).p,hl=s.L.at(-1).p>s.L.at(-2).p;st=hh&&hl?1:(!hh&&!hl?-1:0)}
+ const ma=e50[n]>e200[n]&&c[n]>e50[n]?1:(e50[n]<e200[n]&&c[n]<e50[n]?-1:0);return{ma,st}}
+
+function analyze(m15,h1,h4){
+ const d=m15,n=d.length-1,p=d[n].c,A=atr(d),s=swings(d),T4=trend(h4),T1=trend(h1);
+ const bias=T4.ma+T4.st+T1.ma+T1.st; // -4..4
+ const dir=bias>=1?1:bias<=-1?-1:0;
+ if(!dir)return{none:"HTF bias មិនច្បាស់ (Trend Following) — រង់ចាំ",bias};
+ const V=[],why=(name,ok,trig)=>ok&&V.push({name,trig,w:/Sweep|Wyckoff|Breakout/.test(name)?2:1});
+ const last=d.slice(-16),pH=s.H.filter(x=>x.i<n-16).at(-1),pL=s.L.filter(x=>x.i<n-16).at(-1);
+ // Liquidity sweep (SMC/ICT)
+ let sweepSL=null;
+ if(dir>0&&pL){const c=last.find(x=>x.l<pL.p&&x.c>pL.p);if(c){why("Liquidity Sweep + Reclaim (SMC/ICT)",1,1);sweepSL=c.l}}
+ if(dir<0&&pH){const c=last.find(x=>x.h>pH.p&&x.c<pH.p);if(c){why("Liquidity Sweep + Reclaim (SMC/ICT)",1,1);sweepSL=c.h}}
+ // Wyckoff spring / upthrust
+ const rg=d.slice(-50,-6),rh=Math.max(...rg.map(x=>x.h)),rl=Math.min(...rg.map(x=>x.l));
+ why("Wyckoff Spring",dir>0&&last.some(x=>x.l<rl&&x.c>rl),1);
+ why("Wyckoff Upthrust",dir<0&&last.some(x=>x.h>rh&&x.c<rh),1);
+ // Breakout & retest (Supply/Demand flip)
+ const lv=dir>0?s.H.filter(x=>x.i<n-3).at(-1):s.L.filter(x=>x.i<n-3).at(-1);
+ if(lv){const br=d.slice(-20).some(x=>dir>0?x.c>lv.p:x.c<lv.p);
+  why("Breakout & Retest (S/D flip)",br&&Math.abs(p-lv.p)<1*A,1)}
+ // FVG / Order block zone
+ for(let i=n;i>n-20;i--){const a=d[i-2],c=d[i];
+  if(dir>0&&a.h<c.l&&p>=a.h&&p<=c.l){why("Fair Value Gap (ICT)",1,0);break}
+  if(dir<0&&a.l>c.h&&p<=a.l&&p>=c.h){why("Fair Value Gap (ICT)",1,0);break}}
+ // Fibo pullback 0.5-0.786 (Elliott wave 2/4, Harmonic zone)
+ const sh=s.H.at(-1),sl=s.L.at(-1);
+ if(sh&&sl){const hi=sh.p,lo=sl.p,r=dir>0?(hi-p)/(hi-lo):(p-lo)/(hi-lo);
+  why("Fibo 0.5–0.786 (Elliott/Harmonic zone)",r>=0.5&&r<=0.786&&(dir>0?sl.i<sh.i:sh.i<sl.i),0)}
+ // VSA
+ const avg=d.slice(-30,-2).reduce((a,x)=>a+x.v,0)/28,x=d[n-1],sp=x.h-x.l,pos=(x.c-x.l)/(sp||1e-9);
+ why("VSA Demand (high vol, close high)",dir>0&&x.v>1.6*avg&&pos>.6,0);
+ why("VSA Supply (high vol, close low)",dir<0&&x.v>1.6*avg&&pos<.4,0);
+ // Order flow proxy (delta)
+ const dl=d.slice(-10).reduce((a,x)=>a+x.v*(x.c-x.o)/((x.h-x.l)||1e-9),0);
+ why("Order Flow Delta",dl*dir>0,0);
+ // Price action
+ const y=d[n-1],z=d[n],body=Math.abs(z.c-z.o),uw=z.h-Math.max(z.o,z.c),lw=Math.min(z.o,z.c)-z.l;
+ why("Price Action (Engulf/Pin)",dir>0?(z.c>y.o&&z.o<y.c&&y.c<y.o)||lw>2*body:(z.c<y.o&&z.o>y.c&&y.c>y.o)||uw>2*body,1);
+ // RSI
+ const R=rsi(d);why("RSI Momentum",dir>0?R>40&&R<65:R<60&&R>35,0);
+ const trig=V.some(v=>v.trig),sc=V.reduce((a,v)=>a+v.w,0);
+ // concept ខ្លាំង (Sweep/Wyckoff/Breakout-Retest) = 2 ពិន្ទុ → 1 concept ក៏គ្រប់គ្រាន់។ concept ធម្មតា = 1 ពិន្ទុ → ត្រូវ 2 concepts
+ if(sc<2)return{none:`ពិន្ទុ ${sc}/2 ឬគ្មាន trigger — រង់ចាំ setup ត្រូវ concept`,bias,V};
+ // Levels
+ const sd=Math.max(1.2*A,sweepSL?Math.abs(p-sweepSL)+0.3*A:0),sl2=p-dir*sd;
+ return{dir:dir>0?"BUY":"SELL",entry:p,sl:sl2,tp1:p+dir*sd*1.5,tp2:p+dir*sd*3,V,score:sc,bias,sd}}
+
+function session(){const h=new Date().getUTCHours();
+ return h<7?"Asia":h<13?"London":"New York"}
+const f=x=>(x+(+document.getElementById("off").value||0)).toFixed(2);
+function render(r,locked){
+ const o=document.getElementById("out");
+ if(r.none){o.innerHTML=`<div class="big">⏳ គ្មាន Signal</div><p>${r.none}</p>`+(r.V?`<ul>${r.V.map(v=>`<li>${v.name}</li>`).join("")}</ul>`:"");return}
+ window.SD=r.sd;window.LR=r;window.LK=locked;
+ o.innerHTML=`<div class="big ${r.dir}">${r.dir} XAUUSD</div>${locked?'<div class="mu">🔒 signal របស់ session នេះ (ចាក់សោរ)</div>':""}
+ <div class="row"><span>Entry</span><b>${f(r.entry)}</b></div>
+ <div class="row"><span>Stop Loss</span><b>${f(r.sl)}</b></div>
+ <div class="row"><span>TP1 (1:1.5)</span><b>${f(r.tp1)}</b></div>
+ <div class="row"><span>TP2 (1:3)</span><b>${f(r.tp2)}</b></div>
+ <div class="row"><span>Confluence</span><b>${r.V.length} concept · ពិន្ទុ ${r.score}</b></div>
+ <p><b>Strategy ដែលបញ្ជាក់៖</b></p><ul>${r.V.map(v=>`<li>${v.name}</li>`).join("")}</ul>
+ <div class="mu">ផ្លាស់ SL ទៅ BE នៅ TP1 · ចាកចេញ 50% នៅ TP1</div>`;lot()}
+function lot(){const e=document.getElementById("lot");if(!window.SD){e.textContent="";return}
+ const risk=bal.value*rk.value/100,l=risk/(window.SD*(+cs.value||100));
+ e.innerHTML=`Risk $${risk.toFixed(2)} → Lot ≈ <b>${l.toFixed(2)}</b> (SL ${window.SD.toFixed(2)}$)`}
+bal.oninput=rk.oninput=cs.oninput=lot;
+off.oninput=()=>{if(window.LR)render(window.LR,window.LK)};
+
+async function run(force){
+ const S=session(),key="sig_"+new Date().toISOString().slice(0,10)+"_"+S;
+ document.getElementById("sess").textContent="Session: "+S+" (UTC "+new Date().getUTCHours()+":00)";
+ if(S==="Off"){render({none:"ក្រៅម៉ោង session — មិនមាន signal"});return}
+ try{const old=JSON.parse(localStorage.getItem(key)||"null");if(old){render(old,true);return}}catch(e){}
+ try{const[a,b,c]=await loadAll();
+  const r=analyze(a,b,c);render(r);
+  if(!r.none)try{localStorage.setItem(key,JSON.stringify(r))}catch(e){}
+ }catch(e){document.getElementById("out").innerHTML=`<div class="big">⚠️ ផ្ទុកទិន្នន័យមិនបាន</div><p>${e.message}</p>`}}
+setInterval(()=>{if(!document.hidden&&!localStorage.getItem("sig_"+new Date().toISOString().slice(0,10)+"_"+session()))run()},300000);
+run();
+</script>
+</body>
+</html>
